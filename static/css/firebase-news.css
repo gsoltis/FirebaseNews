@@ -16,3 +16,7 @@ a.down.voted {
 .downvotes {
     color: blue;
 }
+
+ul {
+    list-style: none;
+}

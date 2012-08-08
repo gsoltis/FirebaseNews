@@ -3,6 +3,7 @@ $(function() {
     var LINKS = ROOT.child('links');
     var USERS = ROOT.child('users');
     var COMMENT_INSET = 20;
+    var SORTING_ENABLED = true;
     var stories = [];
     var expanded = [];
     var editing = null;
@@ -62,7 +63,9 @@ $(function() {
     };
 
     var sortScorable = function(scorables) {
-        scorables.sort(valWrapper(totalSort));
+        if (SORTING_ENABLED) {
+            scorables.sort(valWrapper(totalSort));
+        }
     }
 
     var sortComments = function(comments) {
@@ -120,25 +123,6 @@ $(function() {
         var ul = $('<ul />');
         var comments = story.val().comments || [];
         renderCommentList(ul, comments, story.ref(), 0);
-        /*var commentIndices = sortComments(comments);
-        for (var i = 0; i < commentIndices.length; ++i) {
-            var cIndex = commentIndices[i];
-            var comment = comments[cIndex.i];
-            var refString = story.ref().child('comments').child(cIndex.i).toString();
-            li = $(COMMENT_TEMPLATE({
-                refString: refString,
-                username: thisUser && comment.user == thisUser.name ? "You" : comment.user,
-                scoreWidget: scoreElement(comment),
-                voteCount: voteCountElement(comment),
-                text: comment.text,
-                replyWidget: ADD_COMMENT_TEMPLATE({
-                    editing: false,
-                    canEdit: thisUser != null,
-                    title: "Reply"
-                })
-            }));
-            ul.append(li);
-        }*/
         div.append(ul);
     };
 
@@ -348,9 +332,6 @@ $(function() {
             parent = parent.comments[cIndex];
         } while (sub.indexOf('comments') != -1);
         return parent;
-        //var index = refString.lastIndexOf('/');
-        //var commentId = parseInt(refString.substring(index + 1));
-        //return story.val().comments[commentId];
     }
 
     var removeVote = function(listNode, userRef) {
