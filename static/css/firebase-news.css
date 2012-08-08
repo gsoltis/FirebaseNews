@@ -1,0 +1,18 @@
+a.vote {
+    text-decoration: none;
+    color: #808080;
+}
+a.up.voted {
+    color: red;
+}
+a.down.voted {
+    color: blue;
+}
+
+.upvotes {
+    color: red;
+}
+
+.downvotes {
+    color: blue;
+}
