@@ -1,4 +1,4 @@
 FirebaseNews
 ============
 
-Realtime News
+Realtime News, using Firebase
