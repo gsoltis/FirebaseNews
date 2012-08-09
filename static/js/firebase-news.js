@@ -2,7 +2,7 @@ $(function() {
     var ROOT = new Firebase('http://gamma.firebase.com/firebase_news');
     var LINKS = ROOT.child('links');
     var USERS = ROOT.child('users');
-    var SORTING_ENABLED = true;
+    var SORTING_ENABLED = false;
     var editing = null;
 
     var linkify = function(link) {
@@ -149,7 +149,7 @@ $(function() {
         var li = $(event.target).closest('li');
         var div = li.find('div.new-comment').first();
         if (editing) {
-            console.log('need to close old editors?');
+            //console.log('need to close old editors?');
         }
         editing = div;
         div.html(ADD_COMMENT_TEMPLATE({
