@@ -5,6 +5,12 @@ a.vote {
 a.up.voted {
     color: red;
 }
+
+span.paren {
+    position: relative;
+    top: -1.5px;
+}
+
 a.down.voted {
     color: blue;
 }
@@ -17,6 +23,77 @@ a.down.voted {
     color: blue;
 }
 
+li.story {
+    margin-top: 5px;
+    margin-bottom: 5px;
+}
+
+.story a.link1 {
+    font-weight: bold;
+}
+
+.story a.comment-reply {
+    margin-top: 15px;
+    margin-left: 27px;
+    color: blue;
+    font-size: 14px;
+    text-decoration: none;
+}
+
+.story a.comment-reply:hover {
+    text-decoration: underline;
+}
+
+.story .comment a.comment-reply {
+    margin-top: 0px;
+    margin-left: 0px;
+}
+
+li.comment {
+    margin-top: 7px;
+    margin-bottom: 7px;
+}
+
+.comment p {
+    margin-top: 3px;
+    margin-bottom: 3px;
+}
+
+span.username {
+    font-weight: bold;
+    font-size: 14px;
+    margin-left: 5px;
+}
+
 ul {
     list-style: none;
+}
+
+span.score {
+    font-size: 12px;
+    margin-left: 28px;
+}
+
+span.site {
+    font-size: 12px;
+    color: grey;
+    margin-left: 5px;
+}
+
+.comment span.score {
+    margin-left: 0px;
+}
+
+span.vote-arrows {
+    font-size: 16px;
+}
+
+a.comments-opener {
+    color: grey;
+    font-size: 12px;
+    text-decoration: none;
+}
+
+a.comments-opener:hover {
+    text-decoration: underline;
 }

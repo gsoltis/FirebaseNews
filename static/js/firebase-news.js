@@ -2,10 +2,7 @@ $(function() {
     var ROOT = new Firebase('http://gamma.firebase.com/firebase_news');
     var LINKS = ROOT.child('links');
     var USERS = ROOT.child('users');
-    var COMMENT_INSET = 20;
     var SORTING_ENABLED = true;
-    var stories = [];
-    var expanded = [];
     var editing = null;
 
     var linkify = function(link) {
@@ -77,13 +74,15 @@ $(function() {
                 down: comment.down || []
             });
         });
-        commentIndex.sort(totalSort);
+        if (SORTING_ENABLED) {
+            commentIndex.sort(totalSort);
+        }
         return commentIndex;
     };
 
     var ADD_COMMENT_TEMPLATE = _.template($('#add-comment-template').html());
     var COMMENT_TEMPLATE = _.template($('#comment-template').html());
-    var renderCommentList = function(ul, comments, parentRef, offset) {
+    var renderCommentList = function(ul, comments, parentRef) {
         var commentIndices = sortComments(comments);
         var commentsRef = parentRef.child('comments');
         for (var i = 0; i < commentIndices.length; ++i) {
@@ -105,10 +104,8 @@ $(function() {
 
             // add next thread
             var nextComments = comment['comments'] || [];
-            var nextOffset = offset + 1;
             var nextUl = $('<ul/>');
-            nextUl.css('margin-right', offset * COMMENT_INSET + 'px');
-            renderCommentList(nextUl, nextComments, new Firebase(refString), nextOffset);
+            renderCommentList(nextUl, nextComments, new Firebase(refString));
             li.append(nextUl);
             ul.append(li);
         }
@@ -122,7 +119,7 @@ $(function() {
         })));
         var ul = $('<ul />');
         var comments = story.val().comments || [];
-        renderCommentList(ul, comments, story.ref(), 0);
+        renderCommentList(ul, comments, story.ref());
         div.append(ul);
     };
 
@@ -144,10 +141,11 @@ $(function() {
             user: thisUser.name,
             up: [thisUser.ref.toString()]
         };
-        addCommentToRef(refString, comment);
+        new Firebase(refString).child('comments').push(comment);
     };
 
     var replyHandler = function(event) {
+        event.preventDefault();
         var li = $(event.target).closest('li');
         var div = li.find('div.new-comment').first();
         if (editing) {
@@ -159,54 +157,45 @@ $(function() {
             canEdit: true,
             title: 'reply'
         }));
+        $(div).find('.comment-text').focus();
     };
 
     var toggleComments = function(refString) {
         var li = $('li[id="' + refString + '"]');
-        var a = li.children('.comments-opener');
-        if (a.hasClass('show-comments')) {
-            // showing the comments
-            a.removeClass('show-comments');
-            a.addClass('hide-comments');
-            a.text('Hide Comments');
-            expanded.push(refString);
-            var story = getStory(refString);
-            var div = $('<div />');
-            div.addClass('comments');
-            li.append(div);
-            renderComments(div, story);
-        } else {
-            // hiding the comments
-            a.removeClass('hide-comments');
-            a.addClass('show-comments');
-            a.text('View Comments');
-            li.children('div.comments').remove();
-            expanded.splice(expanded.indexOf(refString), 1);
-        }
-    };
+        var a = li.find('.comments-opener');
 
-    var addCommentToRef = function(refString, comment) {
-        new Firebase(refString).child('comments').transaction(function(commentList) {
-            if (!commentList) {
-                return [comment];
+        new Firebase(refString).once('value', function(story) {
+            if (a.hasClass('show-comments')) {
+                // showing the comments
+                a.removeClass('show-comments');
+                a.addClass('hide-comments');
+                a.text('Hide Comments');
+
+                var div = $('<div />');
+                div.addClass('comments');
+                li.append(div);
+                renderComments(div, story);
             } else {
-                commentList.push(comment);
-                return commentList;
+                // hiding the comments
+                a.removeClass('hide-comments');
+                a.addClass('show-comments');
+                var commentCount = countComments(0, story.val());
+                a.text('View Comments (' + commentCount + ')');
+                li.children('div.comments').remove();
             }
-        }, function(success) {
-            if (!success) console.warn('failed to make comment');
         });
     };
 
     var storyAdded = function(snapshot, prevChild) {
-        stories.push(snapshot);
-        render();
+        $('#links').append(renderStory(snapshot.val(), snapshot.ref().toString()));
     };
 
     var storyChanged = function(snapshot, prevChild) {
-        var index = stories.indexOf(getStory(snapshot.ref().toString()));
-        stories.splice(index, 1, snapshot);
-        render();
+        var refString = snapshot.ref().toString();
+        var li = $('li[id="' + refString + '"]');
+        var isOpen = li.find('.show-comments').length == 0;
+        li.replaceWith(renderStory(snapshot.val(), refString));
+        if (isOpen) toggleComments(refString);
     };
 
     var callWithVotes = function(fn) {
@@ -240,32 +229,49 @@ $(function() {
         });
     });
 
+    var siteForLink = function(link) {
+        var a = document.createElement('a');
+        a.href = link;
+        return a.hostname;
+    }
+
+    var countComments = function(initial, parent) {
+        var comments = parent.comments || {};
+        return initial + _.reduce(comments, countComments, _.size(comments));
+    }
+
     var STORY_TEMPLATE = _.template($('#story-template').html());
-    var render = function() {
+    var renderStory = function(story_data, refString) {
+        // remove it if it exists already
+        var score = scoreElement(story_data);
+        var voteCount = voteCountElement(story_data);
+        var site = siteForLink(story_data.link);
+        var li = $(STORY_TEMPLATE({
+            scoreWidget: score,
+            link: story_data.link,
+            title: story_data.title,
+            refString: refString,
+            voteCount: voteCount,
+            site: site,
+            commentCount: countComments(0, story_data)
+        }));
+        return li;
+    };
+
+    var renderAll = function() {
         var ul = $('#links');
-        ul.empty();
-        if (stories.length) {
-            sortScorable(stories);
-            for (var i = 0; i < stories.length; ++i) {
-                var story = stories[i];
-                var story_data = story.val();
-                var score = scoreElement(story_data);
-                var voteCount = voteCountElement(story_data);
-                var refString = story.ref().toString();
-                li = $(STORY_TEMPLATE({
-                    scoreWidget: score,
-                    link: story_data.link,
-                    title: story_data.title,
-                    refString: refString,
-                    voteCount: voteCount
-                }));
-                ul.append(li);
-                // this was expanded. Make sure it still is to avoid resetting the ui
-                if (expanded.indexOf(refString) != -1) toggleComments(refString);
+        LINKS.once('value', function(snapshot) {
+            ul.empty();
+            var stories = snapshot.val();
+            if (_.size(stories)) {
+                sortScorable(stories);
+                _.each(_.map(stories, function(story_data, key) {
+                    return renderStory(story_data, LINKS.child(key).toString());
+                }), function(li) {
+                    ul.append(li);
+                });
             }
-        } else {
-            ul.append($('<li>No stories yet</li>'));
-        }
+        });
     }
 
     var thisUser = null;
@@ -275,7 +281,7 @@ $(function() {
             $('#submit-div').show();
             $('#user-display').text(username);
             thisUser = {name: username, ref: USERS.child(username)};
-            render();
+            renderAll();
             if (remember) {
                 $.cookie('username', username);
             } else {
@@ -305,34 +311,8 @@ $(function() {
         $('#submit-div').hide();
         $.cookie('username', null);
         thisUser = null;
-        render();
+        renderAll();
     };
-
-    var getStory = function(refString) {
-        for (var i = 0; i < stories.length; ++i) {
-            var story = stories[i];
-            if (story.ref().toString() == refString) {
-                return story;
-            }
-        }
-        return null;
-    };
-
-    var getComment = function(refString) {
-        var i = refString.indexOf('comments');
-        var storyRefString = refString.substr(0, i - 1);
-        var parent = getStory(storyRefString).val();
-        var sub = refString.substr(i);
-        do {
-            sub = sub.substr('comments'.length + 1);
-            var nextI = sub.indexOf('/');
-            if (nextI == -1) nextI = sub.length;
-            var cIndex = parseInt(sub.substr(0, nextI));
-            sub = sub.substr(nextI + 1);
-            parent = parent.comments[cIndex];
-        } while (sub.indexOf('comments') != -1);
-        return parent;
-    }
 
     var removeVote = function(listNode, userRef) {
         listNode.transaction(function(listData) {
@@ -362,39 +342,32 @@ $(function() {
         });
     };
 
-    var findScorable = function(li) {
-        var refString = li.attr('id');
-        if (li.hasClass('story')) {
-            return getStory(refString).val();
-        } else if (li.hasClass('comment')) {
-            return getComment(refString);
-        }
-    };
-
     var handleVote = function(event) {
         event.preventDefault();
         var a = $(event.target);
         var isUpvote = a.hasClass('up');
         var li = a.closest('li');
-        var ref = li.attr('id');
-        var scorable = findScorable(li);
-        var scorableNode = new Firebase(ref);
-        var userRef = thisUser.ref.toString();
-        var addList = isUpvote ? scorable.up || [] : scorable.down || [];
-        var addNode = scorableNode.child(isUpvote ? 'up' : 'down');
-        var removeList = isUpvote ? scorable.down || [] : scorable.up || [];
-        if (addList.indexOf(userRef) != -1) {
-            // this is just removing a vote
-            removeVote(addNode, userRef);
-        } else {
-            // do the vote
-            addVote(addNode, userRef);
-            if (removeList.indexOf(userRef) != -1) {
-                // need to remove old vote as well
-                var removeNode = scorableNode.child(isUpvote ? 'down' : 'up');
-                removeVote(removeNode, userRef);
+        var refString = li.attr('id');
+        var node = new Firebase(refString);
+        node.once('value', function(snapshot) {
+            var scorable = snapshot.val();
+            var userRef = thisUser.ref.toString();
+            var addList = isUpvote ? scorable.up || [] : scorable.down || [];
+            var removeList = isUpvote ? scorable.down || [] : scorable.up || [];
+            var addNode = node.child(isUpvote ? 'up' : 'down');
+            if (addList.indexOf(userRef) != -1) {
+                // this is just removing a vote
+                removeVote(addNode, userRef);
+            } else {
+                // do the vote
+                addVote(addNode, userRef);
+                if (removeList.indexOf(userRef) != -1) {
+                    // need to remove old vote as well
+                    var removeNode = node.child(isUpvote ? 'down' : 'up');
+                    removeVote(removeNode, userRef);
+                }
             }
-        }
+        });
     };
 
     LINKS.on('child_added', storyAdded);
@@ -405,5 +378,10 @@ $(function() {
     $(document).on('click', '.comments-opener', showCommentsHandler);
     $(document).on('click', '.comment-reply', replyHandler);
     $(document).on('click', '.comment-submit', replySubmit);
+    $(document).on('keypress', '.comment-text', function(event) {
+        if ((event.keyCode || event.which) == '13' && !event.shiftKey) {
+            $(event.target).siblings('.comment-submit').click();
+        }
+    });
     handleAuth();
 });
