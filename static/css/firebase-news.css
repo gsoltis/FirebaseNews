@@ -69,6 +69,16 @@ ul {
     list-style: none;
 }
 
+ul.anim {
+    padding: 0px;
+    margin: 0px;
+}
+
+.anim li {
+    padding: 0px;
+    margin: 0px;
+}
+
 span.score {
     font-size: 12px;
     margin-left: 28px;

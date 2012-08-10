@@ -3,8 +3,7 @@ $(function() {
     var LINKS = ROOT.child('links');
     var USERS = ROOT.child('users');
     var COMMENTS = ROOT.child('comments');
-    var SORTING_ENABLED = false;
-    var editing = null;
+    var ANIMATION_ENABLED = true;
 
     var linkify = function(link) {
         var a = document.createElement('a');
@@ -31,54 +30,6 @@ $(function() {
         data.votes[thisUser.ref.name()] = true;
         LINKS.push(data);
         btn.prop('disabled', false);
-    };
-
-    var intCmp = function(a, b) {
-        if (a > b) return -1;
-        if (a == b) return 0;
-        return 1;
-    }
-
-    var valWrapper = function(fn) {
-        return function(a, b) {
-            if (typeof(a.val) == 'function') {
-                return fn(a.val(), b.val());
-            } else {
-                return fn(a, b);
-            }
-        }
-    }
-
-    var upvoteSort = function(a, b) {
-        return intCmp((a.up || []).length, (b.up || []).length)
-    };
-
-    var totalSort = function(a, b) {
-        return intCmp(
-            (a.up || []).length - (a.down || []).length,
-            (b.up || []).length - (b.down || []).length
-        );
-    };
-
-    var sortScorable = function(scorables) {
-        if (SORTING_ENABLED) {
-            scorables.sort(valWrapper(totalSort));
-        }
-    }
-
-    var sortComments = function(comments) {
-        var commentIndex = [];
-        $.each(comments, function(index, comment) {
-            commentIndex.push({
-                i: index,
-                up: comment.up || [],
-                down: comment.down || []
-            });
-        });
-        if (SORTING_ENABLED) {
-            commentIndex.sort(totalSort);
-        }
-        return commentIndex;
     };
 
     // reply handling
@@ -128,34 +79,6 @@ $(function() {
     // Comment rendering
     var ADD_COMMENT_TEMPLATE = _.template($('#add-comment-template').html());
     var COMMENT_TEMPLATE = _.template($('#comment-template').html());
-    var renderCommentList = function(ul, comments, parentRef) {
-        var commentIndices = sortComments(comments);
-        var commentsRef = parentRef.child('comments');
-        for (var i = 0; i < commentIndices.length; ++i) {
-            var cIndex = commentIndices[i];
-            var comment = comments[cIndex.i];
-            var refString = commentsRef.child(cIndex.i).toString();
-            var li = $(COMMENT_TEMPLATE({
-                refString: refString,
-                username: thisUser && comment.user == thisUser.name ? "You" : comment.user,
-                scoreWidget: scoreElement(comment),
-                voteCount: voteCountElement(comment),
-                text: comment.text,
-                replyWidget: ADD_COMMENT_TEMPLATE({
-                    editing: false,
-                    canEdit: thisUser != null,
-                    title: "Reply"
-                })
-            }));
-
-            // add next thread
-            var nextComments = comment['comments'] || [];
-            var nextUl = $('<ul/>');
-            renderCommentList(nextUl, nextComments, new Firebase(refString));
-            li.append(nextUl);
-            ul.append(li);
-        }
-    };
 
     var showCommentsHandler = function(event) {
         event.preventDefault();
@@ -178,20 +101,108 @@ $(function() {
         route();
     };
 
+    var COMMENT_DATA_TEMPLATE = _.template($('#comment-data-template').html());
+    var commentData = function(comment) {
+        return COMMENT_DATA_TEMPLATE({
+            username: thisUser && comment.user == thisUser.name ? "You" : comment.user,
+            scoreElement: scoreElement(comment.votes),
+            voteElement: voteElement(comment.votes),
+            text: comment.text
+        });
+    };
+
+    // callbacks
     var storyAdded = function(snapshot, prevChild) {
         snapshot.ref().on('value', storyChanged);
         var li = $('<li/>');
-        li.addClass('ref')
+        li.addClass('ref');
         li.addClass('story');
         li.attr('id', snapshot.ref().toString());
         li.html(renderStory(snapshot.val(), false));
-        $('#links').append(li);
+        $('#links').prepend(li);
+    };
+
+    var storyRemoved = function(snapshot) {
+        $('li[id="' + snapshot.ref() + '"]').remove();
+        snapshot.ref().off('value');
     };
 
     var storyChanged = function(snapshot, prevChild) {
         var refString = snapshot.ref().toString();
         var el = $('[id="' + refString + '"]');
-        el.html(renderStory(snapshot.val(), false));
+        var story = snapshot.val();
+        el.html(renderStory(story, false));
+    };
+
+    var storyMoved = function(snapshot, prevChildName) {
+        var refString = snapshot.ref().toString();
+        var li = $('.story[id="' + refString + '"]');
+        var nextRefString = li.next().attr('id');
+        if (nextRefString) nextRefString = new Firebase(nextRefString).name();
+        if (nextRefString == prevChildName) {
+            return;
+        }
+        var placeAtTarget = function(el) {
+            if (prevChildName) {
+                // insert it before prevChild
+                var prevRefString = LINKS.child(prevChildName).toString();
+                var prevLi = $('.story[id="' + prevRefString + '"]');
+                prevLi.before(el);
+            } else {
+                // insert it at the bottom
+                $('#links').append(el);
+            }
+        };
+        if (ANIMATION_ENABLED) {
+            var div = $('<div/>');
+            div.css('position', 'absolute');
+            var startPos = li.offset();
+            div.offset(startPos);
+
+            var mover = li.clone();
+            var height = li.height();
+            div.append($('<ul class="anim"/>').append(mover));
+            $('body').append(div);
+            var tmp = $('<li class="tmp"/>');
+            tmp.height(height);
+            li.replaceWith(tmp);
+            if (prevChildName) {
+                var prevRefString = LINKS.child(prevChildName).toString();
+                var prevLi = $('.story[id="' + prevRefString + '"]');
+                // if we're moving down, target the item above prevChild to replace
+                if (prevLi.offset().top > tmp.offset().top) {
+                    prevLi = prevLi.prev();
+                }
+            } else {
+                var prevLi = $('.story:last');
+            }
+
+            var targetPos = prevLi.offset();
+            var up = targetPos.top < startPos.top;
+            div.animate({top: targetPos.top}, {duration: 'slow', complete: function() {
+                tmp.replaceWith(li);
+                div.remove();
+            }, step: function(now, fx) {
+                var tmp = $('.tmp');
+                if (up) {
+                    var threshold = tmp.offset().top - height / 2;
+                    if (now < threshold) {
+                        tmp.after(tmp.prev());
+                    }
+                } else {
+                    var threshold = tmp.offset().top + height / 2;
+                    //console.log(tmp.offset().top + height / 2);
+                    if (now > threshold) {
+
+                        tmp.before(tmp.next());
+                    }
+                }
+            }});
+        } else {
+            // we're in inverted order, highest priority displays first
+            li = li.detach();
+            placeAtTarget(li);
+        }
     };
 
     var commentStoryChanged = function(snapshot, prevChild) {
@@ -205,20 +216,6 @@ $(function() {
             route();
         }
     }
-
-    var storyRemoved = function(snapshot) {
-
-    };
-
-    var COMMENT_DATA_TEMPLATE = _.template($('#comment-data-template').html());
-    var commentData = function(comment) {
-        return COMMENT_DATA_TEMPLATE({
-            username: thisUser && comment.user == thisUser.name ? "You" : comment.user,
-            scoreElement: scoreElement(comment.votes),
-            voteElement: voteElement(comment.votes),
-            text: comment.text
-        });
-    };
 
     var commentChanged = function(snapshot, prevChild) {
         var refString = snapshot.ref().toString();
@@ -255,11 +252,18 @@ $(function() {
 
     // Scoring
     var SCORE_TEMPLATE = _.template($('#score-template').html());
-    var scoreElement = function(votes) {
+    var voteScores = function(votes) {
         if (!votes) votes = {};
         var total = _.size(votes);
         var upCount = _.reduce(votes, function(accum, val, key) { return val ? accum + 1 : accum}, 0);
         var downCount = total - upCount;
+        return [upCount, downCount];
+    };
+
+    var scoreElement = function(votes) {
+        var counts = voteScores(votes);
+        var upCount = counts[0];
+        var downCount = counts[1];
         if (upCount) upCount = "+" + upCount;
         if (downCount) downCount = "-" + downCount;
         return SCORE_TEMPLATE({
@@ -273,12 +277,7 @@ $(function() {
         var a = document.createElement('a');
         a.href = link;
         return a.hostname;
-    }
-
-    var countComments = function(initial, parent) {
-        var comments = parent.comments || {};
-        return initial + _.reduce(comments, countComments, _.size(comments));
-    }
+    };
 
     var STORY_TEMPLATE = _.template($('#story-template').html());
     var renderStory = function(story_data, expanded) {
@@ -363,7 +362,13 @@ $(function() {
         var a = $(event.target);
         var toSet = a.hasClass('voted') ? null : a.hasClass('up');
         var refString = a.closest('.ref').attr('id');
-        new Firebase(refString).child('votes').child(thisUser.ref.name()).set(toSet);
+        var ref = new Firebase(refString);
+        ref.child('votes').child(thisUser.ref.name()).set(toSet, function(success) {
+            ref.once('value', function(snapshot) {
+                var counts = voteScores(snapshot.val().votes);
+                ref.setPriority(counts[0] - counts[1]);
+            });
+        });
     };
 
     // Routing
@@ -375,6 +380,7 @@ $(function() {
         content.append(ul);
         LINKS.on('child_added', storyAdded);
         LINKS.on('child_removed', storyRemoved);
+        LINKS.on('child_moved', storyMoved);
         $(document).on('click', '.comments-opener', showCommentsHandler);
         $(document).on('click', '.vote', handleVote);
         return function() {
