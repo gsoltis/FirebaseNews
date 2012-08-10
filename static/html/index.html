@@ -31,7 +31,7 @@
             <input type="checkbox" id="remember" />
             <label for="remember">Remember this login</label>
         </div>
-        <script type="text/template" id="score-element">
+        <script type="text/template" id="vote-template">
             <span class="vote-arrows">
                 <% if (showVotes) _.each(['up', 'down'], function(voteType) { %>
                     <a href="#" class="vote <%= voteType %><% if (voted == voteType) print(' voted'); %>">
@@ -45,12 +45,13 @@
                 <% if (editing) { %>
                 <input type="text" class="comment-text" />
                 <button class="comment-submit">Add Comment</button>
+                <button class="comment-cancel">Cancel</button>
                 <% } else if (canEdit) { %>
                 <a href="#" class="comment-reply"><%= title %></a>
                 <% } %>
             </div>
         </script>
-        <script type="text/template" id="vote-count-template">
+        <script type="text/template" id="score-template">
             <span class="score">
                 <span class="paren">(</span>
                 <span class="upvotes"><%= upCount %></span>&nbsp;/&nbsp;
@@ -59,22 +60,28 @@
             </span>
         </script>
         <script type="text/template" id="story-template">
-            <li class="story" id="<%= refString %>">
-                <%= scoreWidget %>
-                <a class="link" href="<%= link %>"><%= _.escape(title) %></a>
-                <span class="site">(<%= site %>)</span>
-                <br />
-                <%= voteCount %>
-                <a href="#" class="comments-opener show-comments">View Comments (<%= commentCount %>)</a>
-            </li>
+            <%= voteElement %>
+            <a class="link" href="<%= link %>"><%= _.escape(title) %></a>
+            <span class="site">(<%= site %>)</span>
+            <br />
+            <%= scoreElement %>
+            <a href="#" class="comments-opener <%= expanded ? 'hide-comments' : 'show-comments' %>">
+                <%= expanded ? 'Hide' : 'View' %> Comments (<%= commentCount %>)
+            </a>
         </script>
         <script type="text/template" id="comment-template">
-            <li class="comment" id="<%= refString %>">
-                <p class="byline"><%= voteCount %><span class="username"><%= username %></span></p>
-                <p class="text"><%= _.escape(text) %></p>
-                <%= scoreWidget %>
-                <%= replyWidget %>
+            <li class="ref comment" id="<%= refString %>">
+                <div class="comment-data"><%= commentData %></div>
+                <div class="comment-list" id="<%= refString %>/comments">
+                    <%= replyWidget %>
+                    <ul class="comments"/>
+                </div>
             </li>
+        </script>
+        <script type="text/template" id="comment-data-template">
+            <p class="byline"><%= scoreElement %><span class="username"><%= username %></span></p>
+            <p class="text"><%= _.escape(text) %></p>
+            <%= voteElement %>
         </script>
     </body>
 </html>

@@ -2,6 +2,7 @@ $(function() {
     var ROOT = new Firebase('http://gamma.firebase.com/firebase_news');
     var LINKS = ROOT.child('links');
     var USERS = ROOT.child('users');
+    var COMMENTS = ROOT.child('comments');
     var SORTING_ENABLED = false;
     var editing = null;
 
@@ -24,11 +25,11 @@ $(function() {
             title: title,
             link: link,
             user: thisUser.name,
-            up: [thisUser.ref.toString()],
-            down: [],
-            comments: []
+            votes: {},
+            comments: 0
         };
-        var story = LINKS.push(data);
+        data.votes[thisUser.ref.name()] = true;
+        LINKS.push(data);
         btn.prop('disabled', false);
     };
 
@@ -80,6 +81,51 @@ $(function() {
         return commentIndex;
     };
 
+    // reply handling
+    var replyCancel = function(event) {
+        var div = $(event.target).closest('div.new-comment');
+        var title = div.closest('.comment').length ? 'Reply' : 'Comment';
+        div.html(ADD_COMMENT_TEMPLATE({
+            editing: false,
+            canEdit: true,
+            title: title
+        }));
+    };
+
+    var replySubmit = function(event) {
+        var btn = $(event.target);
+        var commentText = btn.siblings('.comment-text').val();
+        var refString = btn.closest('div.comment-list').attr('id');
+        var comment = {
+            text: commentText,
+            user: thisUser.name,
+            votes: {}
+        };
+        comment.votes[thisUser.ref.name()] = true;
+        var ref = new Firebase(refString).push(comment);
+
+        var storyRefString = $('div.story').attr('id');
+        new Firebase(storyRefString).child('comments').transaction(function(data) {
+            return data + 1;
+        }, function(success) {
+            if (!success) console.warn('failed to update comment count');
+        });
+
+        replyCancel(event);
+    };
+
+    var replyHandler = function(event) {
+        event.preventDefault();
+        var div = $(event.target).closest('div.new-comment');
+        div.html(ADD_COMMENT_TEMPLATE({
+            editing: true,
+            canEdit: true,
+            title: 'reply'
+        }));
+        $(div).find('.comment-text').focus();
+    };
+
+    // Comment rendering
     var ADD_COMMENT_TEMPLATE = _.template($('#add-comment-template').html());
     var COMMENT_TEMPLATE = _.template($('#comment-template').html());
     var renderCommentList = function(ul, comments, parentRef) {
@@ -111,18 +157,6 @@ $(function() {
         }
     };
 
-    var renderComments = function(div, story) {
-        div.append($(ADD_COMMENT_TEMPLATE({
-            editing: false,
-            canEdit: thisUser != null,
-            title: "Add Comment"
-        })));
-        var ul = $('<ul />');
-        var comments = story.val().comments || [];
-        renderCommentList(ul, comments, story.ref());
-        div.append(ul);
-    };
-
     var showCommentsHandler = function(event) {
         event.preventDefault();
         var a = $(event.target);
@@ -131,104 +165,110 @@ $(function() {
         toggleComments(refString);
     };
 
-    var replySubmit = function(event) {
-        var btn = $(event.target);
-        var commentText = btn.siblings('.comment-text').val();
-        var li = btn.closest('li');
-        var refString = li.attr('id');
-        var comment = {
-            text: commentText,
-            user: thisUser.name,
-            up: [thisUser.ref.toString()]
-        };
-        new Firebase(refString).child('comments').push(comment);
-    };
-
-    var replyHandler = function(event) {
-        event.preventDefault();
-        var li = $(event.target).closest('li');
-        var div = li.find('div.new-comment').first();
-        if (editing) {
-            //console.log('need to close old editors?');
-        }
-        editing = div;
-        div.html(ADD_COMMENT_TEMPLATE({
-            editing: true,
-            canEdit: true,
-            title: 'reply'
-        }));
-        $(div).find('.comment-text').focus();
-    };
-
     var toggleComments = function(refString) {
         var li = $('li[id="' + refString + '"]');
         var a = li.find('.comments-opener');
-
-        new Firebase(refString).once('value', function(story) {
-            if (a.hasClass('show-comments')) {
-                // showing the comments
-                a.removeClass('show-comments');
-                a.addClass('hide-comments');
-                a.text('Hide Comments');
-
-                var div = $('<div />');
-                div.addClass('comments');
-                li.append(div);
-                renderComments(div, story);
-            } else {
-                // hiding the comments
-                a.removeClass('hide-comments');
-                a.addClass('show-comments');
-                var commentCount = countComments(0, story.val());
-                a.text('View Comments (' + commentCount + ')');
-                li.children('div.comments').remove();
-            }
-        });
+        if (a.hasClass('show-comments')) {
+            // show the comments
+            window.location.hash = new Firebase(refString).name();
+        } else {
+            // remove the hash, render the stories
+            window.location.hash = "";
+        }
+        route();
     };
 
     var storyAdded = function(snapshot, prevChild) {
-        $('#links').append(renderStory(snapshot.val(), snapshot.ref().toString()));
+        snapshot.ref().on('value', storyChanged);
+        var li = $('<li/>');
+        li.addClass('ref')
+        li.addClass('story');
+        li.attr('id', snapshot.ref().toString());
+        li.html(renderStory(snapshot.val(), false));
+        $('#links').append(li);
     };
 
     var storyChanged = function(snapshot, prevChild) {
         var refString = snapshot.ref().toString();
-        var li = $('li[id="' + refString + '"]');
-        var isOpen = li.find('.show-comments').length == 0;
-        li.replaceWith(renderStory(snapshot.val(), refString));
-        if (isOpen) toggleComments(refString);
+        var el = $('[id="' + refString + '"]');
+        el.html(renderStory(snapshot.val(), false));
     };
 
-    var callWithVotes = function(fn) {
-        return function(scorable) {
-            var up = scorable['up'] || [];
-            var down = scorable['down'] || [];
-            return fn(up, down);
-        };
+    var commentStoryChanged = function(snapshot, prevChild) {
+        var refString = snapshot.ref().toString();
+        var div = $('div[id="' + refString + '"]');
+        var story = snapshot.val();
+        if (story) {
+            div.html(renderStory(snapshot.val(), true));
+        } else {
+            window.location.hash = "";
+            route();
+        }
     }
 
-    var SCORE_TEMPLATE = _.template($('#score-element').html());
-    var scoreElement = callWithVotes(function(up, down) {
-        var voted = null;
-        if (thisUser) {
-            if (up.indexOf(thisUser.ref.toString()) != -1) voted = 'up';
-            else if (down.indexOf(thisUser.ref.toString()) != -1) voted = 'down';
-        }
-        return SCORE_TEMPLATE({
-            voted: voted,
-            showVotes: thisUser != null
-        });
-    });
+    var storyRemoved = function(snapshot) {
 
-    var VOTE_COUNT_TEMPLATE = _.template($('#vote-count-template').html());
-    var voteCountElement = callWithVotes(function(up, down) {
-        var upCount = up.length ? "+" + up.length : "0";
-        var downCount = down.length ? "-" + down.length : "0";
-        return VOTE_COUNT_TEMPLATE({
+    };
+
+    var COMMENT_DATA_TEMPLATE = _.template($('#comment-data-template').html());
+    var commentData = function(comment) {
+        return COMMENT_DATA_TEMPLATE({
+            username: thisUser && comment.user == thisUser.name ? "You" : comment.user,
+            scoreElement: scoreElement(comment.votes),
+            voteElement: voteElement(comment.votes),
+            text: comment.text
+        });
+    };
+
+    var commentChanged = function(snapshot, prevChild) {
+        var refString = snapshot.ref().toString();
+        var comment = snapshot.val();
+        if (comment) {
+            $('.comment[id="' + refString + '"]').children('.comment-data').html(commentData(comment));
+        } else {
+            $('.comment[id="' + refString + '"]').remove();
+        }
+    };
+
+    var commentAdded = function(snapshot, prevChild) {
+        var parentRefString = snapshot.ref().parent().toString();
+        var ul = $('div.comment-list[id="' + parentRefString + '"]').children('ul.comments');
+        var refString = snapshot.ref().toString();
+        var comment = snapshot.val();
+        var li = $(COMMENT_TEMPLATE({
+            refString: refString,
+            commentData: commentData(comment),
+            replyWidget: ADD_COMMENT_TEMPLATE({
+                editing: false,
+                canEdit: thisUser != null,
+                title: "Reply"
+            })
+        }));
+        ul.append(li);
+        snapshot.ref().on('value', commentChanged);
+        snapshot.ref().child('comments').on('child_added', commentAdded);
+    };
+
+    var commentRemoved = function(snapshot) {
+
+    };
+
+    // Scoring
+    var SCORE_TEMPLATE = _.template($('#score-template').html());
+    var scoreElement = function(votes) {
+        if (!votes) votes = {};
+        var total = _.size(votes);
+        var upCount = _.reduce(votes, function(accum, val, key) { return val ? accum + 1 : accum}, 0);
+        var downCount = total - upCount;
+        if (upCount) upCount = "+" + upCount;
+        if (downCount) downCount = "-" + downCount;
+        return SCORE_TEMPLATE({
             upCount: upCount,
             downCount: downCount
         });
-    });
+    };
 
+    // Story rendering
     var siteForLink = function(link) {
         var a = document.createElement('a');
         a.href = link;
@@ -241,39 +281,24 @@ $(function() {
     }
 
     var STORY_TEMPLATE = _.template($('#story-template').html());
-    var renderStory = function(story_data, refString) {
-        // remove it if it exists already
-        var score = scoreElement(story_data);
-        var voteCount = voteCountElement(story_data);
+    var renderStory = function(story_data, expanded) {
+        // remove it if it exists already. Note that the hash includes '#'
+        var vote = voteElement(story_data.votes);
+        var score = scoreElement(story_data.votes);
         var site = siteForLink(story_data.link);
-        var li = $(STORY_TEMPLATE({
-            scoreWidget: score,
+        var storyHtml = $(STORY_TEMPLATE({
+            voteElement: vote,
             link: story_data.link,
             title: story_data.title,
-            refString: refString,
-            voteCount: voteCount,
+            scoreElement: score,
             site: site,
-            commentCount: countComments(0, story_data)
+            commentCount: story_data.comments,
+            expanded: expanded
         }));
-        return li;
+        return storyHtml;
     };
 
-    var renderAll = function() {
-        var ul = $('#links');
-        LINKS.once('value', function(snapshot) {
-            ul.empty();
-            var stories = snapshot.val();
-            if (_.size(stories)) {
-                sortScorable(stories);
-                _.each(_.map(stories, function(story_data, key) {
-                    return renderStory(story_data, LINKS.child(key).toString());
-                }), function(li) {
-                    ul.append(li);
-                });
-            }
-        });
-    }
-
+    // auth
     var thisUser = null;
     var handleAuth = function() {
         var login = function(username, remember) {
@@ -281,12 +306,12 @@ $(function() {
             $('#submit-div').show();
             $('#user-display').text(username);
             thisUser = {name: username, ref: USERS.child(username)};
-            renderAll();
             if (remember) {
                 $.cookie('username', username);
             } else {
                 $.cookie('username', null);
             }
+            route();
         };
         $('#login').click(function(event) {
             var username = $('#username').val();
@@ -303,6 +328,8 @@ $(function() {
         var cookiedUser = $.cookie('username');
         if (cookiedUser) {
             login(cookiedUser, true);
+        } else {
+            route();
         }
     };
 
@@ -311,73 +338,122 @@ $(function() {
         $('#submit-div').hide();
         $.cookie('username', null);
         thisUser = null;
-        renderAll();
+        route();
     };
 
-    var removeVote = function(listNode, userRef) {
-        listNode.transaction(function(listData) {
-            var index = listData.indexOf(userRef);
-            if (index != -1) {
-                listData.splice(index, 1);
+    // Voting
+    var VOTE_TEMPLATE = _.template($('#vote-template').html());
+    var voteElement = function(votes) {
+        if (!votes) votes = {};
+        var voted = null;
+        if (thisUser) {
+            var username = thisUser.ref.name();
+            if (typeof(votes[username]) != 'undefined') {
+                voted = votes[username] ? 'up' : 'down';
             }
-            return listData;
-        }, function(success) {
-            if (!success) console.warn('removing a vote failed');
-        });
-    };
-
-    var addVote = function(listNode, userRef) {
-        listNode.transaction(function(listData) {
-            if (listData) {
-                var index = listData.indexOf(userRef);
-                if (index == -1) {
-                    listData.push(userRef);
-                }
-            } else {
-                listData = [userRef];
-            }
-            return listData;
-        }, function(success) {
-            if (!success) console.warn('voting failed');
+        }
+        return VOTE_TEMPLATE({
+            voted: voted,
+            showVotes: thisUser != null
         });
     };
 
     var handleVote = function(event) {
         event.preventDefault();
         var a = $(event.target);
-        var isUpvote = a.hasClass('up');
-        var li = a.closest('li');
-        var refString = li.attr('id');
-        var node = new Firebase(refString);
-        node.once('value', function(snapshot) {
-            var scorable = snapshot.val();
-            var userRef = thisUser.ref.toString();
-            var addList = isUpvote ? scorable.up || [] : scorable.down || [];
-            var removeList = isUpvote ? scorable.down || [] : scorable.up || [];
-            var addNode = node.child(isUpvote ? 'up' : 'down');
-            if (addList.indexOf(userRef) != -1) {
-                // this is just removing a vote
-                removeVote(addNode, userRef);
-            } else {
-                // do the vote
-                addVote(addNode, userRef);
-                if (removeList.indexOf(userRef) != -1) {
-                    // need to remove old vote as well
-                    var removeNode = node.child(isUpvote ? 'down' : 'up');
-                    removeVote(removeNode, userRef);
-                }
-            }
-        });
+        var toSet = a.hasClass('voted') ? null : a.hasClass('up');
+        var refString = a.closest('.ref').attr('id');
+        new Firebase(refString).child('votes').child(thisUser.ref.name()).set(toSet);
     };
 
-    LINKS.on('child_added', storyAdded);
-    LINKS.on('child_changed', storyChanged);
+    // Routing
+    var mainPage = function() {
+        var content = $('#content');
+        content.empty();
+        var ul = $('<ul/>');
+        ul.attr('id', 'links');
+        content.append(ul);
+        LINKS.on('child_added', storyAdded);
+        LINKS.on('child_removed', storyRemoved);
+        $(document).on('click', '.comments-opener', showCommentsHandler);
+        $(document).on('click', '.vote', handleVote);
+        return function() {
+            LINKS.off('child_added', storyAdded);
+            LINKS.off('child_removed', storyRemoved);
+            $(document).off('click', '.comments-opener', showCommentsHandler);
+            $(document).off('click', '.vote', handleVote);
+            $('li.story').each(function(i, li) {
+                var refString = $(li).attr('id');
+                var storyRef = new Firebase(refString);
+                storyRef.off('value', storyChanged);
+            });
+        };
+    };
+
+    var storyPage = function(refString) {
+        var storyRef = new Firebase(refString);
+        var commentsRef = COMMENTS.child(storyRef.name());
+        var content = $('#content');
+
+        content.empty();
+        // story / headline div
+        var div = $('<div/>');
+        div.attr('id', refString);
+        div.addClass('ref');
+        div.addClass('story');
+
+        content.append(div);
+
+        // comments list
+        div = $('<div/>');
+        div.addClass('comment-list');
+        div.attr('id', commentsRef.toString());
+        div.html(ADD_COMMENT_TEMPLATE({editing: false, canEdit: thisUser != null, title: 'Comment'}));
+        var ul = $('<ul/>');
+        ul.addClass('comments');
+        div.append(ul);
+        content.append(div);
+
+        // listeners
+        storyRef.on('value', commentStoryChanged);
+        commentsRef.on('child_added', commentAdded);
+        $(document).on('click', '.comments-opener', showCommentsHandler);
+        $(document).on('click', '.vote', handleVote);
+        $(document).on('click', '.comment-reply', replyHandler);
+        $(document).on('click', '.comment-submit', replySubmit);
+        $(document).on('click', '.comment-cancel', replyCancel);
+        return function() {
+            $('.comment').each(function(i, el) {
+                var refString = $(el).attr('id');
+                var commentRef = new Firebase(refString);
+                commentRef.off('value', commentChanged);
+                var comments = commentRef.child('comments');
+                comments.off('child_added', commentAdded);
+                comments.off('child_removed', commentRemoved);
+            });
+            storyRef.off('value', storyChanged);
+            commentsRef.off('child_added', commentAdded);
+            $(document).off('click', '.comments-opener', showCommentsHandler);
+            $(document).off('click', '.vote', handleVote);
+            $(document).off('click', '.comment-reply', replyHandler);
+            $(document).off('click', '.comment-submit', replySubmit);
+            $(document).off('click', '.comment-cancel', replyCancel);
+        };
+    };
+
+    var cleanup = function() {};
+    var route = function() {
+        cleanup();
+        if (window.location.hash) {
+            cleanup = storyPage(LINKS.child(window.location.hash.substr(1)).toString());
+        } else {
+            cleanup = mainPage();
+        }
+    };
+
+
     $('#submit').click(handleSubmit);
     $('#logout').click(logout);
-    $(document).on('click', '.vote', handleVote);
-    $(document).on('click', '.comments-opener', showCommentsHandler);
-    $(document).on('click', '.comment-reply', replyHandler);
-    $(document).on('click', '.comment-submit', replySubmit);
     $(document).on('keypress', '.comment-text', function(event) {
         if ((event.keyCode || event.which) == '13' && !event.shiftKey) {
             $(event.target).siblings('.comment-submit').click();
